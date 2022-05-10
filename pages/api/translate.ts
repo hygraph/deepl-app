@@ -5,6 +5,8 @@ import initMiddleware from '../../lib/init-middleware'
 
 import type { NextApiRequest, NextApiResponse } from 'next'
 
+import * as deepl from 'deepl-node';
+
 // Initialize the cors middleware
 const cors = initMiddleware(
     // You can read more about the available options here: https://github.com/expressjs/cors#configuration-options
@@ -14,36 +16,44 @@ const cors = initMiddleware(
     })
 )
 
-type Data = {
-  name: string
-}
+// const apiKey = process.env.DEEPL_API_KEY as string;
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<Data>
+  res: NextApiResponse
   ) {
     // Run cors
     await cors(req, res)
 
-    console.log('request body:', req.body);
+    // console.log('req.body:', req.body);
 
-    // const params = new URLSearchParams({
-    //     include: 'primary_image',
-    //     keyword: req.body ? JSON.parse(req.body) : '',
-    // });
+    const { 
+      source, 
+      target, 
+      q,
+      apiKey
+    } = req.body;
 
-    // const searchEndpoint = 'https://api.bigcommerce.com/stores/7nqbe06g6y/v3/catalog/products?' + params;
+    const translator = new deepl.Translator(apiKey);
 
-    // const request = await fetch(searchEndpoint, {
-    //     method: 'GET',
-    //     headers: {
-    //         'Content-Type': 'application/json',
-    //         'X-Auth-Token': '1bdiouqx9wzkbp5ryborpb6d76g3jn2',
-    //     },
-    // });
-    
-    // const response = await request.json();
+    // console.log('source:', source);
+    // console.log('target:', target);
+    console.log('textToTranslate:', q);
+
+    const textToTranslate: string = typeof q === 'object' 
+      ? JSON.stringify(q)
+      : q;
+
+    const result = await translator.translateText(
+      textToTranslate, 
+      source, //source as deepl.SourceLanguageCode, 
+      target as deepl.TargetLanguageCode);
+
+    console.log('result:', result);
+
+    const usage: deepl.Usage = await translator.getUsage();
+    // console.log(`Characters: ${usage?.character?.count} of ${usage?.character?.limit}`)
     
     // Rest of the API logic
-    res.status(200).json({name: 'John Doe'});
+    res.status(200).json(result);
 }
