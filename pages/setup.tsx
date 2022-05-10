@@ -4,8 +4,8 @@ import { useState } from "react";
 function Setup() {
     // @ts-expect-error
     const { installation } = useApp();
-    const { config } = installation;
     if (installation) {
+        const { config } = installation;
         return <Configure config={config} />;
     }
     return <Install />
