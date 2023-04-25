@@ -120,7 +120,7 @@ const SidebarElement = () => {
                             if (response?.data?.text) {
                                 let newText = response?.data?.text;
 
-                                // @todo: add support to RTE
+                                // // @todo: add support to RTE
                                 // // RTE - HTML to AST
                                 // if (isRichTextEditor) {
                                 //     // console.log('html ' + targetLanguage + ':', newText);
