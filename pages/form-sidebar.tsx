@@ -14,12 +14,49 @@ import { Locale } from "@hygraph/icons";
 
 import axios from "axios";
 
+const slugify = require("slugify");
+
 export default function FormSidebar() {
     return (
         <Wrapper>
             <SidebarElement />
         </Wrapper>
     );
+}
+
+/**
+ * Hygraph localization field names returned by the App SDK are in the format:
+ * "localization_xx.field_name" for top level fields and
+ * "fieldApiId[0].localization_xx.field_name" for nested fields
+ *
+ * This function converts the field name to the format:
+ * "localizations.xx.field_name" for top level fields and
+ * "fieldApiId.0.localizations.xx.field_name" for nested fields
+ *
+ * @param input field name
+ * @returns
+ */
+function normalizeFieldName(input: string): string {
+    // Replace square brackets with dots
+    let transformed = input.replace(/\[/g, ".").replace(/\]/g, "");
+
+    // Split the string into an array based on the dots
+    let parts = transformed.split(".");
+
+    // Iterate through the parts and convert them to the desired format
+    for (let i = 0; i < parts.length; i++) {
+        let part = parts[i];
+
+        // Check if the part matches the pattern: "localization_xx"
+        if (/^localization_[a-z]{2}$/.test(part)) {
+            // Replace the underscore with a dot and update the array
+            // Also, change "localization" to "localizations"
+            parts[i] = "localizations." + part.split("_")[1];
+        }
+    }
+
+    // Join the parts back into a string with dots
+    return parts.join(".");
 }
 
 const SidebarElement = () => {
@@ -29,32 +66,41 @@ const SidebarElement = () => {
         extension,
         form: { getFieldState, change, subscribeToFormState },
     } = useFormSidebarExtension();
-    const [translatableFields, setTranslatableFields] = useState([]);
+    const [defaultFields, setDefaultFields] = useState<string[]>([]);
+    const [translatableFields, setTranslatableFields] = useState<string[]>([]);
     const [buttonLabel, setButtonLabel] = useState("Translate");
     const [loading, setLoading] = useState(false);
 
     const getDefaultLanguage = allLocales.filter((lang) => lang.isDefault);
-    const sourceLanguage = getLanguageCode(getDefaultLanguage[0].apiId);
-    const defaultLanguage = "localization_" + sourceLanguage;
+    const sourceLanguage = getDefaultLanguage[0].apiId;
+    const defaultLanguage = "localizations." + sourceLanguage;
 
     const apiKey = extension.config.API_KEY;
 
     useEffect(() => {
         const getTranslatableFields = (formFields: any) => {
             const fields = Object.entries(formFields.modified);
-            const translatableFields: any[] = [];
-            const defaultFields: any[] = [];
-
+            const defaultFields: string[] = [];
+            const translatableFields: string[] = [];
             fields.map((field) => {
                 let fieldKey = field[0];
-                if (fieldKey.startsWith("localization_")) {
-                    if (fieldKey.startsWith(defaultLanguage)) {
-                        defaultFields.push(fieldKey);
+                if (fieldKey.includes("localization_")) {
+                    const newFieldKey = normalizeFieldName(fieldKey);
+                    if (newFieldKey.includes(defaultLanguage)) {
+                        defaultFields.push(newFieldKey);
                     } else {
-                        translatableFields.push(fieldKey);
+                        translatableFields.push(newFieldKey);
                     }
                 }
                 return true;
+            });
+
+            setDefaultFields(defaultFields);
+            setTranslatableFields(translatableFields);
+
+            console.log("getTranslatableFields:", {
+                defaultFields,
+                translatableFields,
             });
 
             return {
@@ -66,10 +112,7 @@ const SidebarElement = () => {
         let unsubscribe: any;
         subscribeToFormState(
             (state: any) => {
-                const { defaultFields, translatableFields } =
-                    getTranslatableFields(state);
-                // console.log('translatable:', { defaultFields, translatableFields })
-                setTranslatableFields(translatableFields as never);
+                getTranslatableFields(state);
             },
             {
                 modified: true,
@@ -82,20 +125,22 @@ const SidebarElement = () => {
     }, [subscribeToFormState, defaultLanguage]);
 
     const translate = () => {
+        if (translatableFields.length === 0) return;
+
         setLoading(true);
         setButtonLabel("Translating...");
 
-        // console.log('translatableFields:', translatableFields);
-        // console.log('defaultLanguageFields:', defaultLanguageFields);
-
         translatableFields.map(
-            (field: any, index: number, arrFields: never[]) => {
+            (field: any, index: number, arrFields: string[]) => {
                 const isLastItem = index + 1 === arrFields.length;
-                const [fieldPrefix, fieldApiId] = field.split(".");
-                const targetLanguage = getLanguageCode(fieldPrefix);
+                const targetLanguage = getLanguageCode(field);
+                const targetField = field;
+                const fieldToTranslate = defaultFields[index];
 
-                const defaultLanguageField = defaultLanguage + "." + fieldApiId;
-                getFieldState(defaultLanguageField).then(({ value }: any) => {
+                console.log("targetLanguage:", targetLanguage);
+                console.log("fieldToTranslate:", fieldToTranslate);
+
+                getFieldState(fieldToTranslate).then(({ value }: any) => {
                     let textToTranslate: any = value;
                     // let isRichTextEditor = textToTranslate.hasOwnProperty("raw")
                     //     ? true
@@ -139,7 +184,14 @@ const SidebarElement = () => {
                                 //     );
                                 //     // console.log(`Skipping RTE...`);
                                 // } else {
-                                change(`${fieldPrefix}.${fieldApiId}`, newText);
+                                // TODO: Add support for slug fields
+                                // This is a temporary solution
+                                change(
+                                    targetField,
+                                    targetField.includes("slug")
+                                        ? slugify(newText, { lower: true })
+                                        : newText
+                                );
                                 // }
                             }
 
@@ -182,6 +234,7 @@ const SidebarElement = () => {
                 width="100%"
                 loading={loading}
                 loadingText={buttonLabel}
+                disabled={translatableFields.length === 0}
             >
                 {buttonLabel}
             </Button>
@@ -189,10 +242,8 @@ const SidebarElement = () => {
     );
 };
 
-const getLanguageCode = (languageCode: string): string => {
-    if (languageCode.startsWith("localization_")) {
-        return languageCode.slice(-2);
-    } else {
-        return languageCode.substring(0, 2);
-    }
+const getLanguageCode = (fieldKey: string): string => {
+    const fieldParts = fieldKey.split(".");
+    const fieldLanguage = fieldParts.slice(-2, -1).toString();
+    return fieldLanguage;
 };
